@@ -278,7 +278,8 @@ class SemanticSTMManager:
                 neighbor_results = self.engram_manager.find_spatial_neighbors(
                     coordinates=query_coords,
                     radius=0.5,
-                    max_results=ltm_neighbors
+                    max_results=ltm_neighbors,
+                    query_text=user_input  # Pass query for relevance scoring
                 )
                 ltm_spatial_neighbors = neighbor_results
             except:

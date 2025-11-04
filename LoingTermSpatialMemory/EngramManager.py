@@ -103,11 +103,17 @@ class EngramManager:
             'memories_with_links': 0
         }
         
+        # RELEVANCE FILTERING CONFIG
+        self.relevance_min_score = 0.35      # Minimum score to pass (blocks pollution)
+        self.serendipity_slots = 2           # Keep N "interesting" weak matches
+        self.serendipity_min_score = 0.15    # Below this = total garbage
+        
         if verbose:
             print("\n🎯 ENGRAM MANAGER V2 READY!")
             print("📍 Coordinate Keys: [x.xxx][y.yyy][z.zzz]...[f.fff]")
             print("🗄️ Database: Fast key-based LMDB storage")
             print(f"🔗 Semantic Linking: {'ENABLED' if enable_linking else 'DISABLED'}")
+            print(f"🎲 Relevance Filtering: min_score={self.relevance_min_score}, serendipity={self.serendipity_slots}")
             print("⚡ Processing: Pure algorithmic (NO LLM bottlenecks)")
             if not verbose:
                 print("🚀 SPEED MODE: Minimal logging for bulk processing")
@@ -219,36 +225,169 @@ class EngramManager:
                 print(f"❌ Retrieval failed: {e}")
             return None
     
+    def _calculate_relevance_score(self, query_data: Dict, memory_result: Dict) -> float:
+        """
+        🎯 CALCULATE MULTI-SIGNAL RELEVANCE SCORE
+        
+        Combines three signals to determine if a memory is truly relevant:
+        1. Spatial proximity (distance in 9D space)
+        2. Semantic keyword overlap (shared concepts)
+        3. Summary coherence (related meanings)
+        
+        Args:
+            query_data: Processed query data from coord_system.process()
+            memory_result: Memory result from database search
+            
+        Returns:
+            float: Relevance score (0.0 = garbage, 1.0 = perfect match)
+        """
+        # Extract memory data
+        memory_data = memory_result.get('data', {})
+        distance = memory_result.get('distance', 1.0)
+        
+        # SIGNAL 1: Spatial Distance Score (closer = better)
+        # Normalize to 0.5 radius: distance 0.0 = score 1.0, distance 0.5 = score 0.0
+        spatial_score = max(0.0, 1.0 - (distance / 0.5))
+        
+        # SIGNAL 2: Keyword Overlap Score (shared concepts)
+        query_keys = set(query_data.get('semantic_keys', []))
+        memory_keys = set(memory_data.get('semantic_keys', []))
+        
+        if query_keys and memory_keys:
+            overlap_count = len(query_keys & memory_keys)
+            # 5+ shared keywords = perfect score
+            keyword_score = min(1.0, overlap_count / 5.0)
+        else:
+            keyword_score = 0.0
+        
+        # SIGNAL 3: Summary Coherence Score (related text)
+        query_summary = query_data.get('summary', '').lower()
+        memory_summary = memory_data.get('semantic_summary', '').lower()
+        
+        # Simple word overlap (not too strict - preserve creativity!)
+        query_words = set(query_summary.split())
+        memory_words = set(memory_summary.split())
+        
+        # Remove common stop words that don't add meaning
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+        query_words -= stop_words
+        memory_words -= stop_words
+        
+        if query_words and memory_words:
+            shared_word_count = len(query_words & memory_words)
+            # 3+ shared meaningful words = good coherence
+            coherence_score = min(1.0, shared_word_count / 3.0)
+        else:
+            coherence_score = 0.0
+        
+        # WEIGHTED BLEND
+        # Spatial is most important (where in semantic space)
+        # Keywords validate the connection (what concepts)
+        # Coherence ensures it's not random (how related)
+        final_score = (
+            spatial_score * 0.5 +      # 50% - spatial proximity in 9D
+            keyword_score * 0.3 +      # 30% - shared semantic concepts
+            coherence_score * 0.2      # 20% - text similarity
+        )
+        
+        return final_score
+    
+    def _filter_by_relevance(self, results: List[Dict], query_data: Dict) -> List[Dict]:
+        """
+        🔍 FILTER RESULTS BY RELEVANCE WITH SERENDIPITY PRESERVATION
+        
+        Filters out pollution while preserving unexpected but potentially useful connections.
+        
+        Tiers:
+        - CONFIDENT: score >= min_score (definitely relevant)
+        - SERENDIPITY: min_score > score >= serendipity_min (interesting weak matches)
+        - GARBAGE: score < serendipity_min (clear pollution, discarded)
+        
+        Args:
+            results: Raw search results from database
+            query_data: Processed query data
+            
+        Returns:
+            List[Dict]: Filtered and scored results
+        """
+        if not results:
+            return []
+        
+        # Score all results
+        scored_results = []
+        for result in results:
+            score = self._calculate_relevance_score(query_data, result)
+            scored_results.append({
+                **result,
+                'relevance_score': score
+            })
+        
+        # Sort by score (highest first)
+        scored_results.sort(key=lambda x: x['relevance_score'], reverse=True)
+        
+        # TIER 1: Confident matches (high relevance)
+        confident = [r for r in scored_results if r['relevance_score'] >= self.relevance_min_score]
+        
+        # TIER 2: Serendipity tier (weak but potentially interesting)
+        serendipity = [
+            r for r in scored_results 
+            if self.serendipity_min_score <= r['relevance_score'] < self.relevance_min_score
+        ][:self.serendipity_slots]  # Keep top N serendipity matches
+        
+        # TIER 3: Garbage (too weak, discarded)
+        garbage_count = len([r for r in scored_results if r['relevance_score'] < self.serendipity_min_score])
+        
+        # Log filtering results
+        if self.verbose and scored_results:
+            print(f"   🎯 Relevance filtering:")
+            print(f"      ✅ Confident: {len(confident)} (score >= {self.relevance_min_score})")
+            print(f"      🎲 Serendipity: {len(serendipity)} (unexpected but interesting)")
+            print(f"      🗑️  Filtered: {garbage_count} (pollution removed)")
+        
+        return confident + serendipity
+    
     def search_similar(self, query_text: str, max_results: int = 5) -> List[Dict]:
         """
-        Search for similar memories using coordinate-based search
+        Search for similar memories using coordinate-based search WITH relevance filtering
         
         Args:
             query_text: Query text
-            max_results: Maximum number of results
+            max_results: Maximum number of results (before filtering)
             
         Returns:
-            List[Dict]: Similar memories
+            List[Dict]: Filtered and scored memories (relevance_score included)
         """
         try:
-            # Process query to get coordinates
+            # Process query to get coordinates and semantic data
             query_result = self.coord_system.process(query_text)
             query_coords = query_result['coordinates']
             
-            # Search database
-            results = self.db_manager.search_by_coordinates(
+            if self.verbose:
+                print(f"🔍 Searching for: {query_result.get('summary', query_text[:50])}")
+            
+            # Search database (cast wider net for filtering)
+            raw_results = self.db_manager.search_by_coordinates(
                 query_coords=query_coords,
                 radius=0.5,  # Search radius in coordinate space
-                max_results=max_results,
+                max_results=max_results * 3,  # Get 3x results for filtering
                 search_strategy='radius'
             )
             
-            if results:
-                self.total_retrieved += len(results)
-                if self.verbose:
-                    print(f"🔍 Found {len(results)} similar memories")
+            if self.verbose and raw_results:
+                print(f"   📦 Raw results: {len(raw_results)} memories")
             
-            return results
+            # Apply relevance filtering
+            filtered_results = self._filter_by_relevance(raw_results, query_result)
+            
+            # Limit to requested count after filtering
+            final_results = filtered_results[:max_results]
+            
+            if final_results:
+                self.total_retrieved += len(final_results)
+                if self.verbose:
+                    print(f"   ✅ Returning {len(final_results)} relevant memories")
+            
+            return final_results
             
         except Exception as e:
             if self.verbose:
@@ -328,28 +467,68 @@ class EngramManager:
         )
     
     def find_spatial_neighbors(self, coordinates: Dict[str, float], 
-                              radius: float = 0.8, max_results: int = 10) -> List[Dict]:
+                              radius: float = 0.5, max_results: int = 10,
+                              query_text: str = None) -> List[Dict]:
         """
-        Find memories within spatial radius (requires semantic linking)
+        Find memories within spatial radius WITH relevance filtering
         
         Args:
             coordinates: Center coordinates for search
-            radius: Search radius
+            radius: Search radius in 9D space
             max_results: Maximum number of results
+            query_text: Optional query text for enhanced relevance scoring
             
         Returns:
-            List of nearby memories
+            List of nearby memories with relevance scores
         """
-        if not self.enable_linking or not self.semantic_linker:
+        try:
             if self.verbose:
-                print("⚠️ Semantic linking not enabled")
+                print(f"🔍 Searching spatial neighbors at radius {radius}")
+            
+            # Search database directly (cast wider net for filtering)
+            raw_results = self.db_manager.search_by_coordinates(
+                query_coords=coordinates,
+                radius=radius,
+                max_results=max_results * 3,  # Get 3x for filtering
+                search_strategy='radius'
+            )
+            
+            if self.verbose and raw_results:
+                print(f"   📦 Raw neighbors: {len(raw_results)} memories")
+            
+            # Apply relevance filtering if query text provided
+            if query_text:
+                query_result = self.coord_system.process(query_text)
+                filtered_results = self._filter_by_relevance(raw_results, query_result)
+            else:
+                # No query text - use spatial distance only
+                # Still score them, but only by distance
+                filtered_results = []
+                for result in raw_results:
+                    distance = result.get('distance', 1.0)
+                    spatial_score = max(0.0, 1.0 - (distance / radius))
+                    
+                    # Keep if distance score is reasonable
+                    if spatial_score >= 0.3:  # At least 30% spatial relevance
+                        filtered_results.append({
+                            **result,
+                            'relevance_score': spatial_score
+                        })
+                
+                filtered_results.sort(key=lambda x: x['relevance_score'], reverse=True)
+            
+            # Limit to requested count
+            final_results = filtered_results[:max_results]
+            
+            if final_results and self.verbose:
+                print(f"   ✅ Returning {len(final_results)} relevant neighbors")
+            
+            return final_results
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Spatial neighbor search failed: {e}")
             return []
-        
-        return self.semantic_linker.find_spatial_neighborhood(
-            coordinates=coordinates,
-            radius=radius,
-            max_results=max_results
-        )
     
     def get_system_stats(self) -> Dict:
         """Get comprehensive system statistics"""
