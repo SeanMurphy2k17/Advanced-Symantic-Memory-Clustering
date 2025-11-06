@@ -117,7 +117,8 @@ class SemanticSTMManager:
             print(f"✅ STM Manager ready with {len(self.stm_entries)} entries")
             print("🧠" * 30)
     
-    def add_conversation_exchange(self, user_input: str, ai_response: str, 
+    def add_conversation_exchange(self, user_input: str, ai_response: str,
+                                thought: str = "", objective: str = "", action: str = "", result: str = "",
                                 metadata: Optional[Dict] = None) -> str:
         """
         Add a conversation exchange to STM
@@ -136,7 +137,7 @@ class SemanticSTMManager:
         # Process with existing 9D coordinate system
         result = self.coord_system.process(full_context)
         
-        # Create STM entry
+        # Create STM entry with separated cognitive stages + result
         stm_entry = {
             'coord_key': result['coordinate_key'],
             'coordinates': result['coordinates'],
@@ -145,6 +146,10 @@ class SemanticSTMManager:
             'full_context': full_context,
             'user_input': user_input,
             'ai_response': ai_response,
+            'thought': thought,
+            'objective': objective,
+            'action': action,
+            'result': result,  # Action consequence for causal learning
             'timestamp': time.time(),
             'datetime': datetime.now().isoformat(),
             'metadata': metadata or {}

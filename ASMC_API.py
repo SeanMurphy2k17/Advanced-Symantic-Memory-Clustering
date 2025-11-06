@@ -65,13 +65,18 @@ class AdvancedSemanticMemory:
             print(f"   LTM Database: {ltm_db_path}")
             print(f"   Features: Two-layer retrieval, 9D clustering, 117k word sentiment")
     
-    def add_experience(self, situation: str, response: str, metadata: dict = None):
+    def add_experience(self, situation: str, response: str, 
+                      thought: str = "", objective: str = "", action: str = "", result: str = "",
+                      metadata: dict = None):
         """
         Add an experience to memory (stores in STM, auto-promotes to LTM)
         
         Args:
             situation: The situation/context (e.g., sensor data, user input)
             response: The response/thought (e.g., LLM output, action taken)
+            thought: Separated thought output from LLM
+            objective: Separated objective output from LLM
+            action: Action taken by agent
             metadata: Optional metadata dictionary
             
         Returns:
@@ -80,6 +85,10 @@ class AdvancedSemanticMemory:
         return self._stm_api.add_conversation(
             user_message=situation,
             ai_response=response,
+            thought=thought,
+            objective=objective,
+            action=action,
+            result=result,
             metadata=metadata
         )
     

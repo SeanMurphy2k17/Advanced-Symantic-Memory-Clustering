@@ -100,6 +100,10 @@ class SemanticSTM_API:
     def add_conversation(self, 
                         user_message: str, 
                         ai_response: str,
+                        thought: str = "",
+                        objective: str = "",
+                        action: str = "",
+                        result: str = "",
                         metadata: Optional[Dict] = None) -> Dict:
         """
         Add a conversation exchange to semantic memory
@@ -116,6 +120,10 @@ class SemanticSTM_API:
             coord_key = self._stm.add_conversation_exchange(
                 user_input=user_message,
                 ai_response=ai_response,
+                thought=thought,
+                objective=objective,
+                action=action,
+                result=result,
                 metadata=metadata
             )
             
