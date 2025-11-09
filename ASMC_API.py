@@ -128,6 +128,142 @@ class AdvancedSemanticMemory:
     def shutdown(self):
         """Gracefully shutdown the memory system"""
         return self._stm_api.shutdown()
+    
+    def MassDataUpload(self, folder_path, file_extensions=['.txt', '.md'], chunk_size=300):
+        """
+        Matrix-style knowledge upload - scan folder and inject all text files as memories.
+        Auto-chunks large files and uploads via existing STM pipeline (auto-promotes to LTM).
+        
+        Args:
+            folder_path: Path to folder containing text files
+            file_extensions: File types to process (default: ['.txt', '.md'])
+            chunk_size: Size of text chunks in characters (default: 300)
+        
+        Returns:
+            Dict: Upload statistics
+        """
+        import os
+        
+        print("🧠" * 30)
+        print("🧠 ASMC MASS DATA UPLOAD - MATRIX MODE")
+        print("🧠" * 30)
+        print(f"📁 Scanning: {folder_path}")
+        print(f"📄 File types: {', '.join(file_extensions)}")
+        print(f"✂️ Chunk size: {chunk_size} chars")
+        print("="*70 + "\n")
+        
+        # Find all files
+        all_files = []
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                if any(file.lower().endswith(ext) for ext in file_extensions):
+                    all_files.append(os.path.join(root, file))
+        
+        if not all_files:
+            print("❌ No files found!")
+            return {'error': 'No files found', 'files_processed': 0}
+        
+        print(f"📚 Found {len(all_files)} files\n")
+        
+        total_chunks = 0
+        files_processed = 0
+        
+        # Process each file
+        for file_idx, filepath in enumerate(all_files, 1):
+            filename = os.path.basename(filepath)
+            print(f"📖 [{file_idx}/{len(all_files)}] Processing: {filename}")
+            
+            try:
+                # Read file
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    text = f.read()
+                
+                if not text.strip():
+                    print(f"   ⚠️ Empty file, skipping")
+                    continue
+                
+                # Chunk text
+                chunks = self._chunk_text(text, chunk_size)
+                print(f"   ✂️ Created {len(chunks)} chunks")
+                
+                # Upload each chunk
+                for chunk_idx, chunk in enumerate(chunks):
+                    self.add_experience(
+                        situation=f"Knowledge from {filename}",
+                        response=chunk,
+                        metadata={
+                            'source': 'mass_upload',
+                            'filename': filename,
+                            'filepath': filepath,
+                            'chunk_index': chunk_idx,
+                            'total_chunks': len(chunks),
+                            'is_innate': True
+                        }
+                    )
+                    total_chunks += 1
+                    
+                    # Progress every 100 chunks
+                    if total_chunks % 100 == 0:
+                        stats = self.get_statistics()
+                        promoted = stats.get('total_promoted_to_longterm', 0)
+                        print(f"   📊 Progress: {total_chunks} chunks uploaded | {promoted} promoted to LTM")
+                
+                files_processed += 1
+                print(f"   ✅ {filename} complete ({len(chunks)} chunks)\n")
+                
+            except Exception as e:
+                print(f"   ❌ Error processing {filename}: {e}\n")
+        
+        # Final statistics
+        final_stats = self.get_statistics()
+        
+        print("\n" + "="*70)
+        print("🎉 MASS UPLOAD COMPLETE!")
+        print("="*70)
+        print(f"📁 Files processed: {files_processed}/{len(all_files)}")
+        print(f"📝 Total chunks: {total_chunks}")
+        print(f"🧠 STM entries: {final_stats.get('current_entries', 0)}")
+        print(f"📤 Promoted to LTM: {final_stats.get('total_promoted_to_longterm', 0)}")
+        print(f"💾 Memory system ready with pre-loaded knowledge!")
+        print("="*70)
+        
+        return {
+            'success': True,
+            'files_found': len(all_files),
+            'files_processed': files_processed,
+            'chunks_uploaded': total_chunks,
+            'promoted_to_ltm': final_stats.get('total_promoted_to_longterm', 0),
+            'current_stm_entries': final_stats.get('current_entries', 0)
+        }
+    
+    def _chunk_text(self, text, chunk_size=300):
+        """Split text into semantic chunks"""
+        if len(text) <= chunk_size:
+            return [text]
+        
+        # Split on sentences
+        sentences = text.replace('!', '.').replace('?', '.').split('.')
+        chunks = []
+        current_chunk = ""
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            
+            test_chunk = current_chunk + ". " + sentence if current_chunk else sentence
+            
+            if len(test_chunk) <= chunk_size:
+                current_chunk = test_chunk
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk + ".")
+                current_chunk = sentence
+        
+        if current_chunk:
+            chunks.append(current_chunk + ".")
+        
+        return chunks
 
 
 # Convenience factory function

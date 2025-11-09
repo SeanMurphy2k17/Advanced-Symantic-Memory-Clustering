@@ -484,11 +484,11 @@ class EngramManager:
         try:
             if self.verbose:
                 print(f"🔍 Searching spatial neighbors at radius {radius}")
-            
+        
             # Search database directly (cast wider net for filtering)
             raw_results = self.db_manager.search_by_coordinates(
                 query_coords=coordinates,
-                radius=radius,
+            radius=radius,
                 max_results=max_results * 3,  # Get 3x for filtering
                 search_strategy='radius'
             )

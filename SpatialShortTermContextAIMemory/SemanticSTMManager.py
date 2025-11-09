@@ -117,7 +117,7 @@ class SemanticSTMManager:
             print(f"✅ STM Manager ready with {len(self.stm_entries)} entries")
             print("🧠" * 30)
     
-    def add_conversation_exchange(self, user_input: str, ai_response: str,
+    def add_conversation_exchange(self, user_input: str, ai_response: str, 
                                 thought: str = "", objective: str = "", action: str = "", result: str = "",
                                 metadata: Optional[Dict] = None) -> str:
         """

@@ -341,7 +341,7 @@ class XMLFormatter:
             xml += f"  <current_objective>{self._escape_xml(current_objective)}</current_objective>\n\n"
         
         # Current state (sensor data)
-        xml += "  <current_state trust=\"absolute\">\n"
+        xml += "  <current_state>\n"
         sensor_xml = self.format_sensor_data(sensor_dict)
         # Indent sensor XML
         for line in sensor_xml.split('\n'):
@@ -363,7 +363,7 @@ class XMLFormatter:
         
         # Long-term memories (LTM)
         if ltm_memories:
-            xml += f"\n  <long_term_memories session=\"previous\" warning=\"may_be_outdated\" count=\"{len(ltm_memories)}\">\n"
+            xml += f"\n  <long_term_memories session=\"previous\" count=\"{len(ltm_memories)}\">\n"
             for mem in ltm_memories:
                 mem_xml = self.format_ltm_memory(mem)
                 # Indent memory XML
